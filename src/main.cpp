@@ -19,7 +19,7 @@ static inline Float Clamp(Float val, Float min, Float max) {
 	return val > max ? max : val;
 }
 
-static constexpr const Float pi = static_cast<Float>(3.14159265358979323846);
+static constexpr const Float pi = FLOAT(3.14159265358979323846);
 
 struct Vec2 {
 	Float x, y;

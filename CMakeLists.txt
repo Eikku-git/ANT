@@ -15,3 +15,5 @@ target_include_directories(ant
 	PUBLIC headers
 	PUBLIC libraries/WiringPi/WiringPi
 )
+
+target_link_libraries(ant libwiringPi)

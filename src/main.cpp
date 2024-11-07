@@ -1,4 +1,5 @@
 #include "wiringPi.h"
+#include <time.h>
 #include <math.h>
 
 template<typename T, size_t T_size>
@@ -13,11 +14,19 @@ typedef double Float;
 
 #define FLOAT(x) static_cast<Float>(x)
 
+static inline Float Clamp(Float val, Float min, Float max) {
+	val = val < min ? min : val;
+	return val > max ? max : val;
+}
+
 static constexpr const Float pi = static_cast<Float>(3.14159265358979323846);
 
 struct Vec2 {
 	Float x, y;
 	constexpr inline Vec2(Float x = FLOAT(0), Float y = FLOAT(0)) noexcept : x(x), y(y) {}
+	constexpr inline Vec2 operator-(const Vec2& other) const {
+		return Vec2(x - other.x, y - other.y);
+	}
 };
 
 typedef Vec2 Euler2;
@@ -40,6 +49,24 @@ struct Quaternion {
 
 	constexpr inline Quaternion(Float x = FLOAT(0), Float y = FLOAT(0), Float z = FLOAT(0), Float w = FLOAT(1)) noexcept : x(x), y(y), z(z), w(w) {}
 
+	static constexpr inline Float AngleBetween(const Quaternion& a, const Quaternion& b) noexcept {
+		return acos(fmin(fabs(Quaternion::Dot(a, b)), FLOAT(1))) * FLOAT(2);
+	}
+
+	static constexpr inline Quaternion Slerp(const Quaternion& from, const Quaternion& to, Float t) noexcept {
+		return Quaternion(from * (1 - t) + to * t);
+	}
+
+	static constexpr inline Quaternion RotateTowards(const Quaternion& from, const Quaternion& to, Float maxRadians) noexcept {
+		float angle = AngleBetween(from, to);
+		if (abs(angle) < 0.000001f) {
+			return to;
+		}
+		return Slerp(from, to, Clamp(maxRadians / angle, FLOAT(0), FLOAT(1)));
+	}
+
+	static constexpr inline Float Dot(const Quaternion& a, const Quaternion& b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+
 	constexpr inline Euler2 AsEuler2() noexcept {
 
 		Euler2 res{};
@@ -53,13 +80,16 @@ struct Quaternion {
 
 		return res;
 	}
+
+	constexpr inline Quaternion operator+(const Quaternion& other) const noexcept { return Quaternion(x + other.x, y + other.y, z + other.z, w + other.w); }
+	constexpr inline Quaternion operator*(float scalar) const noexcept { return Quaternion(x * scalar, y * scalar, z * scalar, w * scalar); }
 };
 
 struct Mat3 {
 
 	Array<Array<Float, 3>, 3> m{};
 
-	constexpr inline Quaternion ToQuaternion() noexcept {
+	constexpr inline Quaternion AsQuaternion() noexcept {
 
 		Float num0 = m[0][0] - m[1][1] - m[2][2];
 		Float num1 = m[1][1] - m[0][0] - m[2][2];
@@ -95,7 +125,7 @@ struct Mat3 {
 		}
 	}
 
-	constexpr inline Mat3 LookAt(const Vec3& front) noexcept {
+	static constexpr inline Mat3 LookAt(const Vec3& front) noexcept {
 		Vec3 up = Vec3::Up();
 		Vec3 right = Vec3::Cross(up, front).Normalized();
 		up = Vec3::Cross(front, right).Normalized();
@@ -115,11 +145,60 @@ struct Mat3 {
 	constexpr inline Array<Float, 3>& operator[](size_t index) noexcept {
 		return m[index];
 	}
+
+	constexpr inline Vec3 operator*(const Vec3& vector) noexcept {
+		return Vec3();
+	}
 };
 
 static Euler2 euler2Rotation(FLOAT(0), FLOAT(0));
-static Quaternion quaternionRot(FLOAT(0), FLOAT(0), FLOAT(0), FLOAT(1));
+static Quaternion quaternionRotation(FLOAT(0), FLOAT(0), FLOAT(0), FLOAT(1));
+static constexpr const Float max_rotation_speed_per_second = FLOAT(5);
+static constexpr const Vec2 pitch_motor_constraints(FLOAT(-pi / 6), FLOAT(pi / 4));
+static Float deltaTime = FLOAT(0);
+
+struct Target {
+	Vec3 direction;
+	Float depth;
+};
+
+void GetTargets(size_t* outCount, Target** ppOutTargets) {
+}
+
+bool RotateMotors(const Vec2& amount) {
+	return false;
+}
 
 int main() {
+	while (true) {
+		size_t targetCount;
+		Target* targets;
+		GetTargets(&targetCount, &targets);
+		if (targetCount) {
+			size_t closestIndex = 0;
+			Target& closestTarget = targets[0];
+			for (size_t i = 1; i < targetCount; i++) {
+				if (targets[i].depth < closestTarget.depth) {
+					closestIndex = i;
+					closestTarget = targets[i];
+				}
+			}
+			Quaternion lookAtRotation = Mat3::LookAt(closestTarget.direction.Normalized()).AsQuaternion();
+			Quaternion rotationThisFrame = Quaternion::RotateTowards(quaternionRotation, lookAtRotation, max_rotation_speed_per_second * deltaTime);
+			Euler2 euler2ThisFrame = rotationThisFrame.AsEuler2();
+			if (euler2ThisFrame.x > pitch_motor_constraints.x && euler2ThisFrame.x < pitch_motor_constraints.y) {
+				if (RotateMotors(euler2Rotation - euler2ThisFrame)) {
+					quaternionRotation = rotationThisFrame;
+					euler2Rotation = euler2ThisFrame;
+				}
+				else {
+					// print or something
+				}
+			}
+		}
+		else {
+			// patroll
+		}
+	}
 	return 0;
 }

@@ -12,7 +12,6 @@ add_executable(ant
 )
 
 target_include_directories(ant
-	PUBLIC headers
 	PUBLIC libraries/WiringPi/WiringPi
 )
 

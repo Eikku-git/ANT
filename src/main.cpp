@@ -9,7 +9,7 @@ struct Vec2 {
 	double x{}, y{};
 
 	inline double SqrMagnitude() {
-		return (double)x * x + (double)x * y;
+		return x * x + x * y;
 	}
 
 	inline Vec2 operator-(Vec2 b) {

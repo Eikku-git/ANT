@@ -1,8 +1,11 @@
 #include "wiringPi.h"
 #include "softPwm.h"
+#include "opencv2/opencv.hpp"
+#include "opencv2/highgui.hpp"
 #include <cstdint>
 #include <time.h>
 #include <math.h>
+#include <vector>
 
 struct Vec2 {
 
@@ -27,18 +30,24 @@ constexpr int y_motor_0 = 1;
 constexpr int y_motor_1 = 2;
 
 struct Target {
-	Vec2 picPos;
+	Vec2 m_PicPos;
 };
 
-inline double Clamp(double val, double min, double max) {
+static inline void GetCameraView(int& outWidth, int& outHeight, std::vector<char[3]>& outPixels) {
+}
+
+static inline void GetTargets(size_t* outCount, Target** ppOutTargets) {
+	int width, height;
+	std::vector<char[3]> pixels;
+	GetCameraView(width, height, pixels);
+};
+
+static inline double Clamp(double val, double min, double max) {
 	val = val > min ? val : min;
 	return val < max ? val : max;
 }
 
-inline void GetTargets(size_t* outCount, Target** ppOutTargets) {
-};
-
-inline void RotateMotors(Vec2 relativePos, const Target& target) {
+static inline void RotateMotors(Vec2 relativePos, const Target& target) {
 	int xSpeed = (int)Clamp(abs(relativePos.x) / pic_center.x * 100, 0.0, 100.0);
 	int ySpeed = (int)Clamp(abs(relativePos.y) / pic_center.y * 100, 0.0, 100.0);
 	if (relativePos.x > 0) {
@@ -88,7 +97,7 @@ int main() {
 		Vec2 closestPos = Vec2 { 0, 0 };
 		size_t closestIndex = SIZE_MAX;
 		for (size_t i = 0; i < targetCount; i++) {
-			Vec2 relativePos = targets[i].picPos - pic_center;
+			Vec2 relativePos = targets[i].m_PicPos - pic_center;
 			double mag = relativePos.SqrMagnitude();
 			if (mag < smallestMagnitude) {
 				smallestMagnitude = mag;

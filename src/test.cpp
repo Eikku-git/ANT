@@ -5,10 +5,22 @@
 
 constexpr const char* window_name = "Face Detection";
 
-static inline void DetectAndDraw(cv::Mat& frame, cv::CascadeClassifier& cascade, cv::CascadeClassifier& nestedCascade, double scale) {
+struct Target {
+	int32_t x; // relative to frame center
+	int32_t y; // relative to frame center
+};
 
-	std::vector<cv::Rect> faces, faces2;
+static inline Target FindTarget(cv::Mat& frame, cv::CascadeClassifier& cascade, cv::CascadeClassifier& nestedCascade, double scale) {
+
+	static const cv::Scalar drawColor1 = cv::Scalar(255, 0, 0);
+	static const cv::Scalar drawColor2 = cv::Scalar(0, 0, 255);
+
+	Target target { INT32_MAX, INT32_MAX };
+	cv::Point frameCenter = { frame.cols / 2, frame.rows / 2 };
+
+	std::vector<cv::Rect> faces;
 	cv::Mat grayFrame, smallFrame;
+
 	cv::cvtColor(frame, grayFrame, cv::COLOR_BGR2GRAY);
 	double fx = 1 / scale;
 	cv::resize(grayFrame, smallFrame, cv::Size(), fx, fx, cv::INTER_LINEAR);
@@ -16,29 +28,33 @@ static inline void DetectAndDraw(cv::Mat& frame, cv::CascadeClassifier& cascade,
 
 	cascade.detectMultiScale(smallFrame, faces, 1.1, 2, cv::CASCADE_SCALE_IMAGE, cv::Size(30, 30));
 
-	if (faces.size()) {
-		std::cout << "detecting faces";
+	if (!faces.size()) {
+		return target;
 	}
 
+	//std::cout << "detecting faces" << std::endl;
+
+	int32_t closestSqrMag = INT32_MAX;
+
 	for (cv::Rect& face : faces) {
-		cv::Mat smallFrameRoi;
+
 		std::vector<cv::Rect> nestedObjects;
-		cv::Point center;
-		cv::Scalar color = cv::Scalar(255, 0, 0);
-		int radius;
-		double aspectRatio = (double)face.width / face.height;
-		if (0.75 < aspectRatio && aspectRatio < 1.3) {
-			center.x = cvRound((face.x + face.width * 0.5) * scale);
-			center.y = cvRound((face.y + face.height * 0.5) * scale);
-			radius = cvRound((face.width + face.height) * 0.25 * scale);
-			cv::circle(frame, center, radius, color, 3, 8, 0);
+		cv::rectangle(frame, face, drawColor1, 3, 8, 0);
+
+		cv::Point faceCenter;
+		faceCenter.x = cvRound((face.x + face.width * 0.5) * scale);
+		faceCenter.y = cvRound((face.y + face.height * 0.5) * scale);
+
+		Target newTarget = { frameCenter.x - faceCenter.x, frameCenter.y - faceCenter.y };
+		int32_t sqrMag = target.x * target.x + target.y * target.y;
+
+		if (sqrMag < closestSqrMag) {
+			closestSqrMag = sqrMag;
+			target = newTarget;
 		}
-		else {
-			cv::rectangle(frame, cv::Point(cvRound(face.x * scale), cvRound(face.y * scale)),
-				cv::Point(cvRound((face.x + face.width - 1) * scale), 
-				cvRound((face.y + face.height - 1) * scale)), color, 3, 8, 0);
-		}
-		smallFrameRoi = smallFrame(face);
+
+		/*
+		cv::Mat smallFrameRoi = smallFrame(face);
 		nestedCascade.detectMultiScale(smallFrameRoi, nestedObjects, 1.1, 2, cv::CASCADE_SCALE_IMAGE, 
 			cv::Size(30, 30));
 		for (cv::Rect& nested : nestedObjects) {
@@ -47,9 +63,16 @@ static inline void DetectAndDraw(cv::Mat& frame, cv::CascadeClassifier& cascade,
 			radius = cvRound((nested.width + nested.height) * 0.25 * scale);
 			cv::circle(frame, center, radius, color, 3, 8, 0);
 		}
+		*/
 	}
 
+	cv::circle(frame, { frameCenter.x - target.x, frameCenter.y - target.y }, 2, drawColor2, 3, 8, 0);
+
 	cv::imshow(window_name, frame);
+
+	target.y = frame.rows / 2 - (frame.rows - (frameCenter.y - target.y));
+
+	return target;
 }
 
 int main() {
@@ -71,11 +94,13 @@ int main() {
 	cv::namedWindow(window_name);
 	while (camCapture.isOpened() && cv::getWindowProperty(window_name, cv::WindowPropertyFlags::WND_PROP_VISIBLE)) {
 		camCapture >> camFrame;
+		;
 		if (camFrame.empty()) {
 			std::cout << "camera frame was empty!" << std::endl;
 			break;
 		}
-		DetectAndDraw(camFrame, cascade, nestedCascade, scale);
+		int resolution[2] = { camFrame.rows, camFrame.cols };
+		FindTarget(camFrame, cascade, nestedCascade, scale);
 		cv::pollKey();
 	}
 	if (cv::getWindowProperty(window_name, cv::WindowPropertyFlags::WND_PROP_VISIBLE)) {

@@ -1,27 +1,17 @@
 #include "wiringPi.h"
 #include "softPwm.h"
-#include "opencv2/opencv.hpp"
 #include "opencv2/highgui.hpp"
+#include "opencv2/imgproc.hpp"
+#include "opencv2/objdetect.hpp"
 #include <cstdint>
+#include <opencv2/core/types.hpp>
 #include <time.h>
 #include <math.h>
 #include <vector>
+#include <iostream>
 
-struct Vec2 {
+constexpr const char* window_name = "Camera View";
 
-	int x{}, y{};
-
-	int SqrMagnitude() const {
-		return x * x + x * y;
-	}
-
-	Vec2 operator-(Vec2 b) {
-		return Vec2 { x - b.x, y - b.y };
-	}
-};
-
-constexpr Vec2 pic_res { 1280, 720 };
-constexpr Vec2 pic_center { 1280 / 2, 720 / 2 };
 constexpr int x_motor_pwm = 3;
 constexpr int x_motor_0 = 4;
 constexpr int x_motor_1 = 5;
@@ -30,27 +20,74 @@ constexpr int y_motor_0 = 1;
 constexpr int y_motor_1 = 2;
 
 struct Target {
-	Vec2 m_PicPos;
+	int x, y; // relative to frame center
 };
 
-static inline void GetCameraView(int& outWidth, int& outHeight, std::vector<char[3]>& outPixels) {
+static inline Target FindTarget(cv::Mat& frame, cv::CascadeClassifier& cascade, double scale) {
+
+	static const cv::Scalar drawColor1 = cv::Scalar(255, 0, 0);
+	static const cv::Scalar drawColor2 = cv::Scalar(0, 0, 255);
+
+	Target target { INT32_MAX, INT32_MAX };
+	cv::Point frameCenter = { frame.cols / 2, frame.rows / 2 };
+
+	std::vector<cv::Rect> faces;
+	cv::Mat grayFrame, smallFrame;
+
+	cv::cvtColor(frame, grayFrame, cv::COLOR_BGR2GRAY);
+	double fx = 1 / scale;
+	cv::resize(grayFrame, smallFrame, cv::Size(), fx, fx, cv::INTER_LINEAR);
+	cv::equalizeHist(smallFrame, smallFrame);
+
+	cascade.detectMultiScale(smallFrame, faces, 1.1, 2, cv::CASCADE_SCALE_IMAGE, cv::Size(30, 30));
+
+	if (!faces.size()) {
+		return target;
+	}
+
+	//std::cout << "detecting faces" << std::endl;
+
+	int32_t closestSqrMag = INT32_MAX;
+
+	for (cv::Rect& face : faces) {
+
+		std::vector<cv::Rect> nestedObjects;
+		cv::rectangle(frame, face, drawColor1, 3, 8, 0);
+
+		cv::Point faceCenter;
+		faceCenter.x = cvRound((face.x + face.width * 0.5) * scale);
+		faceCenter.y = cvRound((face.y + face.height * 0.5) * scale);
+
+		Target newTarget = { frameCenter.x - faceCenter.x, frameCenter.y - faceCenter.y };
+		int32_t sqrMag = target.x * target.x + target.y * target.y;
+
+		if (sqrMag < closestSqrMag) {
+			closestSqrMag = sqrMag;
+			target = newTarget;
+		}
+	}
+
+	cv::circle(frame, { frameCenter.x - target.x, frameCenter.y - target.y }, 2, drawColor2, 3, 8, 0);
+
+	cv::imshow(window_name, frame);
+
+	target.y = frame.rows / 2 - (frame.rows - (frameCenter.y - target.y));
+
+	return target;
 }
-
-static inline void GetTargets(size_t* outCount, Target** ppOutTargets) {
-	int width, height;
-	std::vector<char[3]> pixels;
-	GetCameraView(width, height, pixels);
-};
 
 static inline int Clamp(int val, int min, int max) {
 	val = val > min ? val : min;
 	return val < max ? val : max;
 }
 
-static inline void RotateMotors(Vec2 relativePos, const Target& target) {
-	int xSpeed = (int)Clamp(abs(relativePos.x) / pic_center.x * 100, 0.0, 100.0);
-	int ySpeed = (int)Clamp(abs(relativePos.y) / pic_center.y * 100, 0.0, 100.0);
-	if (relativePos.x > 0) {
+static inline void RotateMotors(cv::Point picCenter, Target target) {
+	if (target.x == INT32_MAX || target.y == INT32_MAX) {
+		return;
+	}
+	int xSpeed = (int)Clamp(abs(target.x) / picCenter.x * 100, 0.0, 100.0);
+	int ySpeed = (int)Clamp(abs(target.y) / picCenter.y * 100, 0.0, 100.0);
+	if (target.x > 0) {
 		//move right
 		pinMode(x_motor_0, HIGH);
 		pinMode(x_motor_1, LOW);
@@ -62,7 +99,7 @@ static inline void RotateMotors(Vec2 relativePos, const Target& target) {
 		pinMode(x_motor_1, HIGH);
 		softPwmWrite(x_motor_pwm, xSpeed);
 	}
-	if (relativePos.y > 0) {
+	if (target.y > 0) {
 		//move up
 		pinMode(y_motor_0, HIGH);
 		pinMode(y_motor_1, LOW);
@@ -77,39 +114,65 @@ static inline void RotateMotors(Vec2 relativePos, const Target& target) {
 }
 
 int main() {
+
 	wiringPiSetupGpio();
 	wiringPiSetup();
+
 	pinMode(x_motor_0, OUTPUT);
 	pinMode(x_motor_1, OUTPUT);
 	softPwmCreate(x_motor_pwm, 0, 100);
+
 	pinMode(y_motor_0, OUTPUT);
 	pinMode(y_motor_1, OUTPUT);
 	softPwmCreate(y_motor_pwm, 0, 100);
+
 	digitalWrite(y_motor_0, LOW);
 	digitalWrite(y_motor_1, LOW);
 	digitalWrite(x_motor_0, LOW);
 	digitalWrite(x_motor_1, LOW);
-	while (true) {
-		size_t targetCount;
-		Target* targets;
-		GetTargets(&targetCount, &targets);
-		int smallestMagnitude = 1000000;
-		Vec2 closestPos = Vec2 { 0, 0 };
-		size_t closestIndex = SIZE_MAX;
-		for (size_t i = 0; i < targetCount; i++) {
-			Vec2 relativePos = targets[i].m_PicPos - pic_center;
-			int mag = relativePos.SqrMagnitude();
-			if (mag < smallestMagnitude) {
-				smallestMagnitude = mag;
-				closestPos = relativePos;
-				closestIndex = i;
-			}
-		}
-		if (closestIndex != SIZE_MAX) {
-			RotateMotors(closestPos, targets[closestIndex]);
-		}
+
+	cv::VideoCapture camCapture;
+	cv::Mat camFrame;
+	cv::CascadeClassifier cascade;
+	cascade.load("opencv/data/haarcascades/haarcascade_frontalface_default.xml");
+
+	if (cascade.empty()) {
+		std::cout << "failed to open face cascade file!" << std::endl;
+		return -1;
 	}
+
+	camCapture.open(0);
+
+	if (!camCapture.isOpened()) {
+		std::cout << "failed to start camera capture!" << std::endl;
+		return -1;
+	}
+
+	cv::namedWindow(window_name);
+
+
+	while (camCapture.isOpened() && cv::getWindowProperty(window_name, cv::WindowPropertyFlags::WND_PROP_VISIBLE)) {
+		camCapture >> camFrame;
+		if (camFrame.empty()) {
+			std::cout << "camera frame was empty!" << std::endl;
+			break;
+		}
+		int resolution[2] = { camFrame.rows, camFrame.cols };
+		RotateMotors({ camFrame.cols / 2, camFrame.rows / 2 }, FindTarget(camFrame, cascade, 1.0));
+		cv::pollKey();
+	}
+
+	if (cv::getWindowProperty(window_name, cv::WindowPropertyFlags::WND_PROP_VISIBLE)) {
+		cv::destroyWindow("Face");
+	}
+
 	softPwmWrite(x_motor_pwm, 0);
 	softPwmWrite(y_motor_pwm, 0);
+
+	digitalWrite(y_motor_0, LOW);
+	digitalWrite(y_motor_1, LOW);
+	digitalWrite(x_motor_0, LOW);
+	digitalWrite(x_motor_1, LOW);
+
 	return 0;
 }

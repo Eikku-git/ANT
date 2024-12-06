@@ -6,8 +6,7 @@
 constexpr const char* window_name = "Face Detection";
 
 struct Target {
-	int32_t x; // relative to frame center
-	int32_t y; // relative to frame center
+	int32_t x, y; // relative to frame center
 };
 
 static inline Target FindTarget(cv::Mat& frame, cv::CascadeClassifier& cascade, cv::CascadeClassifier& nestedCascade, double scale) {
@@ -94,7 +93,6 @@ int main() {
 	cv::namedWindow(window_name);
 	while (camCapture.isOpened() && cv::getWindowProperty(window_name, cv::WindowPropertyFlags::WND_PROP_VISIBLE)) {
 		camCapture >> camFrame;
-		;
 		if (camFrame.empty()) {
 			std::cout << "camera frame was empty!" << std::endl;
 			break;

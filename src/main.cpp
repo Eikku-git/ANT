@@ -9,19 +9,19 @@
 
 struct Vec2 {
 
-	double x{}, y{};
+	int x{}, y{};
 
-	inline double SqrMagnitude() {
+	int SqrMagnitude() const {
 		return x * x + x * y;
 	}
 
-	inline Vec2 operator-(Vec2 b) {
+	Vec2 operator-(Vec2 b) {
 		return Vec2 { x - b.x, y - b.y };
 	}
 };
 
-constexpr Vec2 pic_res { 1280.0, 720.0 };
-constexpr Vec2 pic_center { 1280.0 / 2, 720.0 / 2 };
+constexpr Vec2 pic_res { 1280, 720 };
+constexpr Vec2 pic_center { 1280 / 2, 720 / 2 };
 constexpr int x_motor_pwm = 3;
 constexpr int x_motor_0 = 4;
 constexpr int x_motor_1 = 5;
@@ -42,7 +42,7 @@ static inline void GetTargets(size_t* outCount, Target** ppOutTargets) {
 	GetCameraView(width, height, pixels);
 };
 
-static inline double Clamp(double val, double min, double max) {
+static inline int Clamp(int val, int min, int max) {
 	val = val > min ? val : min;
 	return val < max ? val : max;
 }
@@ -93,12 +93,12 @@ int main() {
 		size_t targetCount;
 		Target* targets;
 		GetTargets(&targetCount, &targets);
-		double smallestMagnitude = 1000000.0;
+		int smallestMagnitude = 1000000;
 		Vec2 closestPos = Vec2 { 0, 0 };
 		size_t closestIndex = SIZE_MAX;
 		for (size_t i = 0; i < targetCount; i++) {
 			Vec2 relativePos = targets[i].m_PicPos - pic_center;
-			double mag = relativePos.SqrMagnitude();
+			int mag = relativePos.SqrMagnitude();
 			if (mag < smallestMagnitude) {
 				smallestMagnitude = mag;
 				closestPos = relativePos;

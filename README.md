@@ -1,4 +1,4 @@
-cmake options:
+opencv cmake options:
 -D CMAKE_BUILD_TYPE=RELEASE 
 -D CMAKE_INSTALL_PREFIX=/usr/local 
 -D OPENCV_GENERATE_PKGCONFIG=ON 
